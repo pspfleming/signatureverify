@@ -6,6 +6,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.*;
 import java.net.Socket;
+import java.net.UnknownHostException;
 import java.security.*;
 import java.security.cert.X509Certificate;
 import java.util.ArrayList;
@@ -27,7 +28,9 @@ public class MainPanel extends JPanel {
         ks.load(ClassLoader.getSystemResourceAsStream("keystore.p12"), "practicas".toCharArray());
 
         // Almacenar los alias en el ArrayList aliases
-
+        Enumeration<String> e = ks.aliases();
+        while (e.hasMoreElements())
+            aliases.add(e.nextElement());
         // ********************************************************************************************************************
 
         GridBagConstraints constraints = new GridBagConstraints();
@@ -123,13 +126,45 @@ public class MainPanel extends JPanel {
         fileChooser.setMultiSelectionEnabled(false);
         if (fileChooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
             // Obtener el alias y el algoritmo seleccionados en los JComboBox aliasComboBox y algorithmComboBox
-
-
+            String alias = (String) aliasComboBox.getSelectedItem();
+            String algorithm = (String) algorithmComboBox.getSelectedItem();
+            File file = fileChooser.getSelectedFile();
             // ********************************************************************************************************************
 
             //  Firmar el fichero seleccionado con el algoritmo seleccionado y el certificado correspondiente al alias seleccionado
             //  y guardar la firma en un fichero con el mismo nombre que el fichero original añadiendo la extensión .signature
-
+            try {
+                X509Certificate certificate = (X509Certificate) ks.getCertificate(alias);
+                PrivateKey key = (PrivateKey) ks.getKey(alias, "practicas".toCharArray());
+                Signature signature = Signature.getInstance(algorithm);
+                signature.initSign(key);
+                try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(file))) {
+                    int n;
+                    byte [] buffer = new byte[1024];
+                    while ((n = in.read(buffer)) != -1)
+                        signature.update(buffer, 0, n);
+                    Base64.Encoder encoder = Base64.getEncoder();
+                    StringBuilder firma = new StringBuilder();
+                    firma.append(encoder.encodeToString(signature.sign()));
+                    firma.append("#");
+                    firma.append(algorithm);
+                    firma.append("#");
+                    firma.append(encoder.encodeToString(certificate.getEncoded()));
+                    try (PrintWriter out = new PrintWriter(new FileOutputStream(file.getAbsolutePath() + ".signature"))) {
+                        out.println(firma.toString());
+                    }
+                } catch (IOException ex) {
+                    JOptionPane.showMessageDialog(this,
+                            ex.getLocalizedMessage(),
+                            "Error",
+                            JOptionPane.ERROR_MESSAGE);
+                }
+            } catch (GeneralSecurityException ex) {
+                JOptionPane.showMessageDialog(this,
+                        ex.getLocalizedMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
             // ********************************************************************************************************************
         }
     }
@@ -143,7 +178,27 @@ public class MainPanel extends JPanel {
             File file = fileChooser.getSelectedFile();
             File signatureFile = new File(file.getAbsolutePath() + ".signature");
             // Enviar la firma y el fichero al servidor y mostrar el resultado de la verificación en un JOptionPane
-
+            try (Socket socket = new Socket("localhost", 9000);
+                 BufferedInputStream inFile = new BufferedInputStream(new FileInputStream(file));
+                 BufferedReader inSignature = new BufferedReader(new FileReader(signatureFile))) {
+                DataOutputStream out = new DataOutputStream(socket.getOutputStream());
+                out.writeUTF(inSignature.readLine());
+                int n;
+                byte [] buffer = new byte[1024];
+                while ((n = inFile.read(buffer)) != -1)
+                    out.write(buffer, 0, n);
+                socket.shutdownOutput();
+                DataInputStream in = new DataInputStream(socket.getInputStream());
+                JOptionPane.showMessageDialog(this,
+                        in.readUTF(),
+                        "Respuesta del servidor",
+                        JOptionPane.INFORMATION_MESSAGE);
+            } catch (IOException e) {
+                JOptionPane.showMessageDialog(this,
+                        e.getLocalizedMessage(),
+                        "Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
             // ********************************************************************************************************************
         }
     }
