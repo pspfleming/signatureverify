@@ -136,7 +136,7 @@ public class MainPanel extends JPanel {
             try {
                 X509Certificate certificate = (X509Certificate) ks.getCertificate(alias);
                 PrivateKey key = (PrivateKey) ks.getKey(alias, "practicas".toCharArray());
-                Signature signature = Signature.getInstance(algorithm);
+                Signature signature = Signature.getInstance(algorithm + "with" + key.getAlgorithm());
                 signature.initSign(key);
                 try (BufferedInputStream in = new BufferedInputStream(new FileInputStream(file))) {
                     int n;
